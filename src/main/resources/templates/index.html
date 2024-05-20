@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formulario de Captura de Dirección</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <h2>Dirección</h2>
+    <form id="direccion-form">
+        <div class="form-group">
+            <label for="cp">Código Postal:</label>
+            <input type="text" class="form-control" id="cp" placeholder="Código Postal" required>
+            <span id="cp-error" class="text-danger" style="display:none;">CP no encontrado</span>
+        </div>
+        <div class="form-group">
+            <label for="estado">Estado:</label>
+            <select class="form-control" id="estado" placeholder="Seleccione un estado..." required></select>
+        </div>
+        <div class="form-group">
+            <label for="municipio">Municipio:</label>
+            <select class="form-control" id="municipio" required></select>
+        </div>
+        <div class="form-group">
+            <label for="localidad">Localidad:</label>
+            <select class="form-control" id="localidad" required></select>
+        </div>
+        <div class="form-group">
+            <label for="colonia">Colonia:</label>
+            <select class="form-control" id="colonia" required></select>
+        </div>
+        <div class="form-group">
+            <label for="calle">Calle y Número:</label>
+            <input type="text" class="form-control" id="calle" placeholder="Calle y Número" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Continuar</button>
+    </form>
+    <span id="mensaje" style="display:none;"></span>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const estadoSelect = document.getElementById('estado');
+        const municipioSelect = document.getElementById('municipio');
+        const localidadSelect = document.getElementById('localidad');
+        const coloniaSelect = document.getElementById('colonia');
+        const cpError = document.getElementById('cp-error');
+        const mensaje = document.getElementById('mensaje');
+        const form = document.getElementById('direccion-form');
+        const cpInput = document.getElementById('cp');
+
+        //se cargan los estados al cargar la página
+        fetch('/api/direccion/estados')
+            .then(response => response.json())
+            .then(data => {
+                estadoSelect.innerHTML = '<option value="">Seleccione un estado...</option>';
+                data.forEach(estado => {
+                    estadoSelect.innerHTML += `<option value="${estado.clave}">${estado.nombreEstado}</option>`;
+                });
+            });
+
+        //listener change en Estado
+        estadoSelect.addEventListener('change', function() {
+            const estadoId = this.value;
+            if (estadoId) {
+                cargarMunicipiosYLocalidades(estadoId);
+            }
+        });
+
+        //listener blur en Cp
+        cpInput.addEventListener('blur', function() {
+            const cp = this.value;
+            if (cp) {
+                fetch(`/api/direccion/codigopostal/${cp}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        cpError.style.display = 'none';
+                        estadoSelect.value = data.estado;
+
+                        const estadoId = data.estado;
+                        cargarMunicipiosYLocalidades(estadoId, data.municipio, data.localidad);
+
+                        //cargamos colonias
+                        fetch(`/api/direccion/colonias/${cp}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                coloniaSelect.innerHTML = '<option value="">Seleccione una colonia...</option>';
+                                data.forEach(colonia => {
+                                    coloniaSelect.innerHTML += `<option value="${colonia.clave}">${colonia.descripcion}</option>`;
+                                });
+                            });
+                    })
+                    .catch(() => {
+                        cpError.style.display = 'block';
+                        estadoSelect.value = '';
+                        municipioSelect.innerHTML = '';
+                        localidadSelect.innerHTML = '';
+                        coloniaSelect.innerHTML = '';
+                    });
+            }
+        });
+
+        //handleSubmit
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            let isValid = true;
+            const inputs = form.querySelectorAll('input, select');
+            inputs.forEach(input => {
+                if (!input.value) {
+                    isValid = false;
+                    input.classList.add('is-invalid');
+                } else {
+                    input.classList.remove('is-invalid');
+                }
+            });
+
+            if (!isValid) {
+                alert('Todos los campos son obligatorios.');
+                return;
+            }
+
+            const datos = {
+                cp: cpInput.value,
+                estado: estadoSelect.value,
+                municipio: municipioSelect.value,
+                localidad: localidadSelect.value,
+                colonia: coloniaSelect.value
+            };
+
+            fetch('/api/direccion/validar', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(datos)
+            })
+                .then(response => response.json())
+                .then(response => {
+                    mensaje.classList.remove('text-danger');
+                    mensaje.classList.add('text-success');
+                    mensaje.textContent = '🟢🟢ENVIADO Y CON DATOS CONSISTENTES🟢🟢';
+                    mensaje.style.display = 'block';
+                    form.reset();
+                    inputs.forEach(input => input.classList.remove('is-invalid'));
+                })
+                .catch(response => {
+                    const errorMsg = response.responseJSON ? response.responseJSON.error : 'Error desconocido';
+                    mensaje.classList.remove('text-success');
+                    mensaje.classList.add('text-danger');
+                    mensaje.textContent = errorMsg;
+                    mensaje.style.display = 'block';
+                });
+        });
+
+        //cargamos municipios y localidades
+        function cargarMunicipiosYLocalidades(estadoId, municipioSeleccionado = null, localidadSeleccionada = null) {
+            //municipios
+            fetch(`/api/direccion/municipios/${estadoId}`)
+                .then(response => response.json())
+                .then(data => {
+                    municipioSelect.innerHTML = '<option value="">Seleccione un municipio...</option>';
+                    data.forEach(municipio => {
+                        municipioSelect.innerHTML += `<option value="${municipio.clave}">${municipio.descripcion}</option>`;
+                    });
+                    if (municipioSeleccionado) {
+                        municipioSelect.value = municipioSeleccionado;
+                    }
+                });
+
+            //localidades
+            fetch(`/api/direccion/localidades/${estadoId}`)
+                .then(response => response.json())
+                .then(data => {
+                    localidadSelect.innerHTML = '<option value="">Seleccione una localidad...</option>';
+                    data.forEach(localidad => {
+                        localidadSelect.innerHTML += `<option value="${localidad.clave}">${localidad.descripcion}</option>`;
+                    });
+                    if (localidadSeleccionada) {
+                        localidadSelect.value = localidadSeleccionada;
+                    }
+                });
+        }
+    });
+</script>
+
+</body>
+</html>
